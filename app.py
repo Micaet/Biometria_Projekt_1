@@ -12,10 +12,9 @@ class BiometriaApp:
         self.root.geometry("1100x700")
 
         # Dane obrazu
-        self.original_np = None  # Oryginał (NumPy array) - tu robisz obliczenia
-        self.processed_np = None  # Po obróbce (NumPy array)
-        self.display_img = None  # Obiekt dla Tkinter (przeskalowany)
-
+        self.original_np = None
+        self.processed_np = None
+        self.display_img = None
         self.setup_ui()
 
     def setup_ui(self):

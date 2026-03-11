@@ -103,14 +103,8 @@ class BiometriaApp:
     def gamma_correction(self, gamma=0.5):
         if self.base_np is not None:
             img_float = self.base_np.astype(np.float32)
-
-            # 1. Normalizacja do zakresu [0, 1]
             img_normalized = img_float / 255.0
-
-            # 2. Zastosowanie potęgi (gamma)
             gamma_img = np.power(img_normalized, gamma)
-
-            # 3. Powrót do zakresu [0, 255]
             self.base_np = (gamma_img * 255).astype(np.uint8)
             self.apply_modifications()
 

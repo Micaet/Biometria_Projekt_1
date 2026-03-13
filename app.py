@@ -4,12 +4,16 @@ from PIL import Image, ImageTk
 import numpy as np
 from tkinter import ttk
 from scipy.ndimage import convolve
-
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 class BiometriaApp:
     def __init__(self, root):
         self.main_container = None
         self.brightness_slider = None
+        self.notebook = None
+        self.page_hist = None
+        self.page_image = None
         self.root = root
         self.root.title("Biometria - Projekt 1")
         self.root.geometry("1100x700")
@@ -18,11 +22,24 @@ class BiometriaApp:
         self.base_np = None
         self.processed_np = None
         self.brightness_value = 0
+        self.hist_frame = None
         self.setup_ui()
 
+
     def setup_ui(self):
-        self.main_container = tk.Frame(self.root)
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+
+        self.page_image = tk.Frame(self.notebook)
+        self.page_hist = tk.Frame(self.notebook)
+
+        self.notebook.add(self.page_image, text="Obraz")
+        self.notebook.add(self.page_hist, text="Histogram")
+        self.main_container = tk.Frame(self.page_image)
         self.main_container.pack(fill=tk.BOTH, expand=True)
+
+        self.hist_frame = tk.Frame(self.page_hist)
+        self.hist_frame.pack(fill=tk.BOTH, expand=True)
 
         sidebar = tk.Frame(self.main_container, width=220, bg="#e0e0e0")
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
@@ -49,11 +66,23 @@ class BiometriaApp:
         tk.Button(sidebar, text="Szarość", command=self.color_to_grayscale).pack(fill=tk.X, padx=10, pady=2)
         tk.Button(sidebar, text="Negatyw", command=self.negatyw).pack(fill=tk.X, padx=10, pady=2)
         tk.Button(sidebar, text="Binaryzacja Prosta", command=self.binaryzacja).pack(fill=tk.X, padx=10, pady=2)
-        tk.Label(sidebar, text="Filtry Liniowe", font=("Arial", 10, "bold"), bg="#e0e0e0").pack(pady=10)
-        tk.Button(sidebar, text="Średni (Average)", command=self.filter_average).pack(fill=tk.X, padx=10, pady=2)
-        tk.Button(sidebar, text="Gaussowski", command=self.filter_gaussian).pack(fill=tk.X, padx=10, pady=2)
-        tk.Button(sidebar, text="Wyostrzający (Sharpen)", command=self.filter_sharpen).pack(fill=tk.X, padx=10, pady=2)
-        btns = ["Filtry Liniowe", "Histogram", "Projekcje H/V", "Krawędzie"]
+        tk.Label(sidebar, text="Filtry", font=("Arial", 10, "bold"), bg="#e0e0e0").pack(pady=10)
+
+        filter_button = tk.Menubutton(sidebar, text="Filtry liniowe ▼", relief=tk.RAISED)
+        filter_button.pack(fill=tk.X, padx=10, pady=2)
+
+        filter_menu = tk.Menu(filter_button, tearoff=0)
+        filter_button.config(menu=filter_menu)
+
+        filter_menu.add_command(label="Średni (Average)", command=self.filter_average)
+        filter_menu.add_command(label="Gaussowski", command=self.filter_gaussian)
+        filter_menu.add_command(label="Wyostrzający (Sharpen)", command=self.filter_sharpen)
+
+        tk.Button(sidebar, text="Histogram",
+                  command=lambda: self.notebook.select(self.page_hist)
+                  ).pack(fill=tk.X, padx=10, pady=2)
+
+        btns = ["Projekcje H/V", "Krawędzie"]
         for txt in btns:
             tk.Button(sidebar, text=txt, command=lambda t=txt: self.not_implemented(t)).pack(fill=tk.X, padx=10, pady=1)
 
@@ -94,6 +123,7 @@ class BiometriaApp:
         if self.base_np is not None:
             self.processed_np = np.clip(self.base_np.astype(np.int16) + self.brightness_value, 0, 255).astype(np.uint8)
             self.update_display()
+            self.update_histogram()
 
     def negatyw(self):
         if self.base_np is not None:
@@ -186,6 +216,34 @@ class BiometriaApp:
 
     def on_resize(self, event):
         self.update_display()
+
+    def update_histogram(self):
+
+        if self.processed_np is None:
+            if self.base_np is not None:
+                self.processed_np = self.base_np
+            else:
+                return
+
+        for widget in self.hist_frame.winfo_children():
+            widget.destroy()
+
+        fig, ax = plt.subplots()
+
+        if len(self.processed_np.shape) == 3:
+            ax.hist(self.processed_np[:, :, 0].flatten(), bins=256,
+                    color='red', alpha=0.4, label='R')
+            ax.hist(self.processed_np[:, :, 1].flatten(), bins=256,
+                    color='green', alpha=0.4, label='G')
+            ax.hist(self.processed_np[:, :, 2].flatten(), bins=256,
+                    color='blue', alpha=0.4, label='B')
+            ax.legend()
+        else:
+            ax.hist(self.processed_np.flatten(), bins=256, color='gray')
+
+        canvas = FigureCanvasTkAgg(fig, master=self.hist_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def not_implemented(self, name):
         messagebox.showinfo("Zadanie", f"Tu zaimplementuj ręcznie algorytm: {name}")

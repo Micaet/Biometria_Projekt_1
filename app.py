@@ -23,6 +23,7 @@ class BiometriaApp:
         self.processed_np = None
         self.brightness_value = 0
         self.hist_frame = None
+        self.hist_figure = None
         self.setup_ui()
 
 
@@ -37,6 +38,9 @@ class BiometriaApp:
         self.notebook.add(self.page_hist, text="Histogram")
         self.main_container = tk.Frame(self.page_image)
         self.main_container.pack(fill=tk.BOTH, expand=True)
+
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        self.hist_figure = None
 
         self.hist_frame = tk.Frame(self.page_hist)
         self.hist_frame.pack(fill=tk.BOTH, expand=True)
@@ -79,8 +83,7 @@ class BiometriaApp:
         filter_menu.add_command(label="Wyostrzający (Sharpen)", command=self.filter_sharpen)
 
         tk.Button(sidebar, text="Histogram",
-                  command=lambda: self.notebook.select(self.page_hist)
-                  ).pack(fill=tk.X, padx=10, pady=2)
+                  command=self.show_histogram).pack(fill=tk.X, padx=10, pady=2)
 
         btns = ["Projekcje H/V", "Krawędzie"]
         for txt in btns:
@@ -89,6 +92,13 @@ class BiometriaApp:
         self.canvas = tk.Canvas(self.main_container, bg="#2b2b2b", highlightthickness=0)
         self.canvas.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH)
         self.canvas.bind("<Configure>", self.on_resize)
+
+    def on_tab_changed(self, event):
+        selected_tab = event.widget.select()
+        tab_widget = event.widget.nametowidget(selected_tab)
+
+        if tab_widget == self.page_hist:
+            self.update_histogram()
 
     def load_image(self):
         path = filedialog.askopenfilename(filetypes=[("Obrazy", "*.jpg *.png *.bmp *.jpeg")])
@@ -123,7 +133,6 @@ class BiometriaApp:
         if self.base_np is not None:
             self.processed_np = np.clip(self.base_np.astype(np.int16) + self.brightness_value, 0, 255).astype(np.uint8)
             self.update_display()
-            self.update_histogram()
 
     def negatyw(self):
         if self.base_np is not None:
@@ -220,15 +229,15 @@ class BiometriaApp:
     def update_histogram(self):
 
         if self.processed_np is None:
-            if self.base_np is not None:
-                self.processed_np = self.base_np
-            else:
-                return
+            return
 
         for widget in self.hist_frame.winfo_children():
             widget.destroy()
 
-        fig, ax = plt.subplots()
+        if self.hist_figure is not None:
+            plt.close(self.hist_figure)
+
+        self.hist_figure, ax = plt.subplots()
 
         if len(self.processed_np.shape) == 3:
             ax.hist(self.processed_np[:, :, 0].flatten(), bins=256,
@@ -241,9 +250,13 @@ class BiometriaApp:
         else:
             ax.hist(self.processed_np.flatten(), bins=256, color='gray')
 
-        canvas = FigureCanvasTkAgg(fig, master=self.hist_frame)
+        canvas = FigureCanvasTkAgg(self.hist_figure, master=self.hist_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    def show_histogram(self):
+        self.notebook.select(self.page_hist)
+        self.update_histogram()
 
     def not_implemented(self, name):
         messagebox.showinfo("Zadanie", f"Tu zaimplementuj ręcznie algorytm: {name}")

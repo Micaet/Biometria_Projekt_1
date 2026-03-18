@@ -6,7 +6,7 @@ from tkinter import ttk
 from scipy.ndimage import convolve
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
+from tkinter import simpledialog
 class BiometriaApp:
     def __init__(self, root):
         self.main_container = None
@@ -33,9 +33,12 @@ class BiometriaApp:
 
         self.page_image = tk.Frame(self.notebook)
         self.page_hist = tk.Frame(self.notebook)
+        self.page_proj = tk.Frame(self.notebook)
+
 
         self.notebook.add(self.page_image, text="Obraz")
         self.notebook.add(self.page_hist, text="Histogram")
+        self.notebook.add(self.page_proj, text="Projekcje")
         self.main_container = tk.Frame(self.page_image)
         self.main_container.pack(fill=tk.BOTH, expand=True)
 
@@ -44,6 +47,10 @@ class BiometriaApp:
 
         self.hist_frame = tk.Frame(self.page_hist)
         self.hist_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.proj_frame = tk.Frame(self.page_proj)
+        self.proj_frame.pack(fill=tk.BOTH, expand=True)
+        self.proj_figure = None
 
         sidebar = tk.Frame(self.main_container, width=220, bg="#e0e0e0")
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
@@ -60,7 +67,6 @@ class BiometriaApp:
         self.brightness_slider = tk.Scale(sidebar, from_=-255, to=255, orient=tk.HORIZONTAL,
                                           command=self.update_brightness)
         self.brightness_slider.pack(fill=tk.X, padx=10, pady=5)
-        # Dodaj w sidebar:
         tk.Button(sidebar, text="Logarytm", command=self.log_transform).pack(fill=tk.X, padx=10, pady=2)
         tk.Button(sidebar, text="Pierwiastek (Gamma 0.5)", command=lambda: self.gamma_correction(0.5)).pack(fill=tk.X,
                                                                                                             padx=10,
@@ -81,13 +87,13 @@ class BiometriaApp:
         filter_menu.add_command(label="Średni (Average)", command=self.filter_average)
         filter_menu.add_command(label="Gaussowski", command=self.filter_gaussian)
         filter_menu.add_command(label="Wyostrzający (Sharpen)", command=self.filter_sharpen)
+        filter_menu.add_command(label="Custom", command=self.filter_from_string)
 
         tk.Button(sidebar, text="Histogram",
                   command=self.show_histogram).pack(fill=tk.X, padx=10, pady=2)
-
-        btns = ["Projekcje H/V", "Krawędzie"]
-        for txt in btns:
-            tk.Button(sidebar, text=txt, command=lambda t=txt: self.not_implemented(t)).pack(fill=tk.X, padx=10, pady=1)
+        tk.Button(sidebar, text="Projekcje H/V", command=self.show_projections).pack(fill=tk.X, padx=10, pady=2)
+        tk.Button(sidebar, text="Krawędzie", command=lambda: self.not_implemented("Krawędzie")).pack(fill=tk.X, padx=10,
+                                                                                                     pady=1)
 
         self.canvas = tk.Canvas(self.main_container, bg="#2b2b2b", highlightthickness=0)
         self.canvas.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH)
@@ -99,6 +105,8 @@ class BiometriaApp:
 
         if tab_widget == self.page_hist:
             self.update_histogram()
+        elif tab_widget == self.page_proj:
+            self.update_projections()
 
     def load_image(self):
         path = filedialog.askopenfilename(filetypes=[("Obrazy", "*.jpg *.png *.bmp *.jpeg")])
@@ -184,7 +192,7 @@ class BiometriaApp:
         self.canvas.delete("all")
         self.canvas.create_image(canvas_w // 2, canvas_h // 2, image=self.display_img)
 
-    def apply_filter(self, filter_type):
+    def apply_filter(self, filter_type,kernel_size=3):
         if self.base_np is None: return
         kernels = {
             "average": np.ones((3, 3)) / 9.0,
@@ -193,8 +201,12 @@ class BiometriaApp:
                                   [1, 2, 1]]) / 16.0,
             "sharpen": np.array([[0, -1, 0],
                                  [-1, 5, -1],
-                                 [0, -1, 0]])
+                                 [0, -1, 0]]),
+            "custom": np.ones((kernel_size, kernel_size)) / (kernel_size * kernel_size)
+
         }
+        if filter_type == "custom":
+            tk
         kernel = kernels[filter_type]
         if len(self.base_np.shape) == 3:
             channels = []
@@ -207,13 +219,29 @@ class BiometriaApp:
         self.apply_modifications()
 
     def filter_average(self):
-        self.apply_filter("average")
+        self.apply_filter("average",3)
 
     def filter_gaussian(self):
-        self.apply_filter("gaussian")
+        self.apply_filter("gaussian",3)
 
     def filter_sharpen(self):
-        self.apply_filter("sharpen")
+        self.apply_filter("sharpen",3)
+
+    def filter_custom(self):
+        if self.base_np is None:
+            messagebox.showwarning("Błąd", "Najpierw wczytaj obraz.")
+            return
+        h, w = self.base_np.shape[:2]
+        max_size = 5
+
+        k = simpledialog.askinteger("Rozmiar filtra",
+                                    f"Podaj rozmiar okienka k (1 - 5):",
+                                    parent=self.root,
+                                    minvalue=1,
+                                    maxvalue=max_size)
+
+        if k:
+            self.apply_filter("custom", k)
 
     def save_image(self):
         if self.processed_np is not None:
@@ -257,6 +285,81 @@ class BiometriaApp:
     def show_histogram(self):
         self.notebook.select(self.page_hist)
         self.update_histogram()
+
+    def update_projections(self):
+        if self.processed_np is None:
+            return
+
+        for widget in self.proj_frame.winfo_children():
+            widget.destroy()
+        if self.proj_figure is not None:
+            plt.close(self.proj_figure)
+
+        if len(self.processed_np.shape) == 3:
+            gray = np.mean(self.processed_np, axis=2)
+        else:
+            gray = self.processed_np
+
+        hor_proj = np.sum(gray, axis=1)
+        ver_proj = np.sum(gray, axis=0)
+
+        self.proj_figure, (ax1, ax2) = plt.subplots(2, 1, figsize=(6, 8))
+        self.proj_figure.tight_layout(pad=3.0)
+
+        ax1.plot(hor_proj, color='blue')
+        ax1.set_title("Projekcja Horyzontalna (Suma wierszy)")
+
+        ax2.plot(ver_proj, color='green')
+        ax2.set_title("Projekcja Wertykalna (Suma kolumn)")
+
+        canvas = FigureCanvasTkAgg(self.proj_figure, master=self.proj_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    def show_projections(self):
+        self.notebook.select(self.page_proj)
+        self.update_projections()
+
+    def filter_from_string(self):
+        if self.base_np is None:
+            messagebox.showwarning("Błąd", "Najpierw wczytaj obraz.")
+            return
+
+        k = simpledialog.askinteger("Rozmiar", "Podaj rozmiar boku macierzy (k):",
+                                    parent=self.root, minvalue=2, maxvalue=10)
+        if not k: return
+
+        input_str = simpledialog.askstring("Wartości",
+                                           f"Wpisz {k * k} wartości oddzielonych spacją:",
+                                           parent=self.root)
+        if not input_str: return
+
+        try:
+
+            values = [float(x) for x in input_str.split()]
+
+            if len(values) != k * k:
+                messagebox.showerror("Błąd", f"Podałeś {len(values)} liczb, a potrzeba dokładnie {k * k}!")
+                return
+
+            kernel = np.array(values).reshape((k, k))
+
+            suma = np.sum(kernel)
+            if suma != 0:
+                kernel = kernel / suma
+
+            self.apply_custom_kernel(kernel)
+
+        except ValueError:
+            messagebox.showerror("Błąd", "Wprowadź poprawne liczby (używaj kropki jako separatora dziesiętnego)!")
+
+    def apply_custom_kernel(self, kernel):
+        if len(self.base_np.shape) == 3:
+            channels = [convolve(self.base_np[:, :, i], kernel) for i in range(3)]
+            self.base_np = np.stack(channels, axis=2).astype(np.uint8)
+        else:
+            self.base_np = convolve(self.base_np, kernel).astype(np.uint8)
+        self.apply_modifications()
 
     def not_implemented(self, name):
         messagebox.showinfo("Zadanie", f"Tu zaimplementuj ręcznie algorytm: {name}")

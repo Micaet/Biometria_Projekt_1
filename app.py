@@ -9,6 +9,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from tkinter import simpledialog
 class BiometriaApp:
     def __init__(self, root):
+        self.edge_threshold = None
         self.main_container = None
         self.brightness_slider = None
         self.notebook = None
@@ -16,7 +17,7 @@ class BiometriaApp:
         self.page_image = None
         self.root = root
         self.root.title("Biometria - Projekt 1")
-        self.root.geometry("1100x700")
+        self.root.geometry("1100x800")
         self.is_szarosc = False
         self.original_np = None
         self.base_np = None
@@ -24,6 +25,11 @@ class BiometriaApp:
         self.brightness_value = 0
         self.hist_frame = None
         self.hist_figure = None
+        self.page_proj = None
+        self.page_edges = None
+        self.edges_np = None
+        self.grad_np = None
+        self.last_edge_method = 'Krzyż Robertsa'
         self.setup_ui()
 
 
@@ -34,11 +40,13 @@ class BiometriaApp:
         self.page_image = tk.Frame(self.notebook)
         self.page_hist = tk.Frame(self.notebook)
         self.page_proj = tk.Frame(self.notebook)
+        self.page_edges = tk.Frame(self.notebook)
 
 
         self.notebook.add(self.page_image, text="Obraz")
         self.notebook.add(self.page_hist, text="Histogram")
         self.notebook.add(self.page_proj, text="Projekcje")
+        self.notebook.add(self.page_edges, text="Krawędzie")
         self.main_container = tk.Frame(self.page_image)
         self.main_container.pack(fill=tk.BOTH, expand=True)
 
@@ -51,6 +59,23 @@ class BiometriaApp:
         self.proj_frame = tk.Frame(self.page_proj)
         self.proj_frame.pack(fill=tk.BOTH, expand=True)
         self.proj_figure = None
+
+        self.edges_frame = tk.Frame(self.page_edges)
+        self.edges_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.edges_toolbar = tk.Frame(self.edges_frame, bg="#d0d0d0", height=40)
+        self.edges_toolbar.pack(fill=tk.X)
+
+        tk.Button(self.edges_toolbar, text="Zapisz krawędzie",
+                  command=self.save_edges).pack(side=tk.LEFT, padx=10, pady=5)
+
+        self.edge_label = tk.Label(self.edges_toolbar, text="Brak danych", bg="#d0d0d0")
+        self.edge_label.pack(side=tk.LEFT, padx=10)
+        tk.Button(self.edges_toolbar, text="Odśwież",
+                  command=lambda: self.show_edges(self.last_edge_method)).pack(side=tk.LEFT, padx=5)
+
+        self.edges_canvas = tk.Canvas(self.edges_frame, bg="#2b2b2b")
+        self.edges_canvas.pack(fill=tk.BOTH, expand=True)
 
         sidebar = tk.Frame(self.main_container, width=220, bg="#e0e0e0")
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
@@ -92,8 +117,21 @@ class BiometriaApp:
         tk.Button(sidebar, text="Histogram",
                   command=self.show_histogram).pack(fill=tk.X, padx=10, pady=2)
         tk.Button(sidebar, text="Projekcje H/V", command=self.show_projections).pack(fill=tk.X, padx=10, pady=2)
-        tk.Button(sidebar, text="Krawędzie", command=lambda: self.not_implemented("Krawędzie")).pack(fill=tk.X, padx=10,
-                                                                                                     pady=1)
+
+        
+
+        edge_button_edgebar = tk.Menubutton(self.edges_toolbar, text="Krawędzie ▼", relief=tk.RAISED)
+        edge_button_edgebar.pack(fill=tk.X, padx=10, pady=2)
+
+        edge_menu_edgebar = tk.Menu(edge_button_edgebar, tearoff=0)
+        edge_button_edgebar.config(menu=edge_menu_edgebar)
+
+        edge_menu_edgebar.add_command(label="Krzyż Robertsa", command=lambda: self.show_edges("Krzyż Robertsa"))
+        edge_menu_edgebar.add_command(label="Operator Sobela", command=lambda: self.show_edges("Operator Sobela"))
+
+        self.edge_threshold = tk.Scale(self.edges_toolbar, from_=0, to=255, orient=tk.HORIZONTAL)
+        self.edge_threshold.set(100)
+        self.edge_threshold.pack(fill=tk.X, padx=10)
 
         self.canvas = tk.Canvas(self.main_container, bg="#2b2b2b", highlightthickness=0)
         self.canvas.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH)
@@ -360,6 +398,80 @@ class BiometriaApp:
         else:
             self.base_np = convolve(self.base_np, kernel).astype(np.uint8)
         self.apply_modifications()
+
+    def find_edges(self, kernel_type):
+        if self.base_np is None:
+            return
+
+        kernels = {
+            'Krzyż Robertsa': [
+                np.array([[1, 0], [0, -1]]),
+                np.array([[0, 1], [-1, 0]])
+            ],
+            'Operator Sobela': [
+                np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]),
+                np.array([[-1, -2, -1], [0, 0, 0], [1, 2, 1]])
+            ],
+        }
+
+        kernel = kernels[kernel_type]
+
+        greyscale = np.dot(self.base_np[..., :3], [0.2989, 0.5870, 0.1140])
+
+        kernel_x = convolve(greyscale, kernel[0])
+        kernel_y = convolve(greyscale, kernel[1])
+
+        grad = np.sqrt(kernel_x ** 2 + kernel_y ** 2)
+
+        if grad.max() != 0:
+            grad = (grad / grad.max()) * 255
+        grad = grad.astype(np.uint8)
+
+        threshold = self.edge_threshold.get()
+        edges_np = grad > threshold
+        grad = (grad * 255).astype(np.uint8)
+
+        self.edges_np = edges_np
+        self.grad = grad
+
+    def show_edges(self, method):
+        self.find_edges(method)
+        self.last_edge_method = method
+        if self.edges_np is None:
+            return
+
+        canvas_w = self.edges_canvas.winfo_width()
+        canvas_h = self.edges_canvas.winfo_height()
+
+        if canvas_w < 2 or canvas_h < 2:
+            return
+
+        self.edge_label.config(text=f"Metoda: {method}")
+
+        img_full = Image.fromarray(self.edges_np)
+
+        img_w, img_h = img_full.size
+        ratio = min(canvas_w / img_w, canvas_h / img_h)
+        new_w, new_h = int(img_w * ratio), int(img_h * ratio)
+
+        img_resized = img_full.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        self.edges_img = ImageTk.PhotoImage(img_resized)
+
+        self.edges_canvas.delete("all")
+        self.edges_canvas.create_image(canvas_w // 2, canvas_h // 2, image=self.edges_img)
+
+        self.notebook.select(self.page_edges)
+
+    def save_edges(self):
+        if not hasattr(self, 'edges_np') or self.edges_np is None:
+            messagebox.showwarning("Błąd", "Najpierw wykryj krawędzie.")
+            return
+
+        path = filedialog.asksaveasfilename(defaultextension=".png",
+                                            filetypes=[("PNG", "*.png"), ("JPG", "*.jpg")])
+        if path:
+            Image.fromarray(self.edges_np).save(path)
+            messagebox.showinfo("OK", "Krawędzie zapisane!")
 
     def not_implemented(self, name):
         messagebox.showinfo("Zadanie", f"Tu zaimplementuj ręcznie algorytm: {name}")

@@ -98,7 +98,25 @@ class BiometriaApp:
                                                                                                             pady=2)
         tk.Button(sidebar, text="Potęga (Gamma 2.0)", command=lambda: self.gamma_correction(2.0)).pack(fill=tk.X,
                                                                                                        padx=10, pady=2)
-        tk.Button(sidebar, text="Szarość", command=self.color_to_grayscale).pack(fill=tk.X, padx=10, pady=2)
+
+        greyscale_button = tk.Menubutton(sidebar, text="Szarość ▼", relief=tk.RAISED)
+        greyscale_button.pack(fill=tk.X, padx=10, pady=2)
+
+        greyscale_menu = tk.Menu(greyscale_button, tearoff=0)
+        greyscale_button.config(menu=greyscale_menu)
+
+        greyscale_menu.add_command(label="Średnia (Average)", command=lambda: self.greyscale('Srednia'))
+        greyscale_menu.add_command(label="Luminacja", command=lambda: self.greyscale('Luminacja'))
+        greyscale_menu.add_command(label="Lightness", command=lambda: self.greyscale('Lightness'))
+        greyscale_menu.add_command(label="PCA", command=lambda: self.greyscale('PCA'))
+        greyscale_menu.add_command(label="Dobierz wagi", command=lambda: self.greyscale('Custom'))
+
+
+
+
+
+
+
         tk.Button(sidebar, text="Negatyw", command=self.negatyw).pack(fill=tk.X, padx=10, pady=2)
         tk.Button(sidebar, text="Binaryzacja Prosta", command=self.binaryzacja).pack(fill=tk.X, padx=10, pady=2)
         tk.Label(sidebar, text="Filtry", font=("Arial", 10, "bold"), bg="#e0e0e0").pack(pady=10)
@@ -162,14 +180,63 @@ class BiometriaApp:
             self.brightness_slider.set(0)
             self.apply_modifications()
 
-    def color_to_grayscale(self):
-        if self.base_np is not None:
-            self.is_szarosc = True
-            if len(self.base_np.shape) == 3:
-                self.base_np = np.dot(self.base_np[..., :3], [0.2989, 0.5870, 0.1140]).astype(np.uint8)
-                self.apply_modifications()
-        else:
+    def greyscale(self, type_of_alg):
+        if self.base_np is None:
             messagebox.showwarning("Błąd", "Najpierw wczytaj obraz.")
+            return
+
+        if len(self.base_np.shape) != 3:
+            messagebox.showinfo("Info", "Obraz jest już w skali szarości.")
+            return
+
+        self.is_szarosc = True
+        img = self.base_np.astype(np.float32)
+
+        if type_of_alg == "Srednia":
+            gray = np.mean(img, axis=2)
+
+        elif type_of_alg == "Luminacja":
+            gray = np.dot(img[..., :3], [0.2989, 0.5870, 0.1140])
+
+        elif type_of_alg == "Lightness":
+            gray = (np.max(img, axis=2) + np.min(img, axis=2)) / 2
+
+        elif type_of_alg == "PCA":
+            pixels = img.reshape(-1, 3)
+
+            mean = np.mean(pixels, axis=0)
+            pixels_centered = pixels - mean
+
+            cov = np.cov(pixels_centered, rowvar=False)
+
+            eigvals, eigvecs = np.linalg.eigh(cov)
+
+            principal_component = eigvecs[:, np.argmax(eigvals)]
+
+            gray = pixels_centered @ principal_component
+            gray = gray.reshape(img.shape[:2])
+            gray = (gray - gray.min()) / (gray.max() - gray.min()) * 255
+
+        elif type_of_alg == "Custom":
+            r = simpledialog.askfloat("Waga R", "Podaj wagę dla R:", parent=self.root)
+            g = simpledialog.askfloat("Waga G", "Podaj wagę dla G:", parent=self.root)
+            b = simpledialog.askfloat("Waga B", "Podaj wagę dla B:", parent=self.root)
+
+            if r is None or g is None or b is None:
+                return
+
+            suma = r + g + b
+            if suma == 0:
+                messagebox.showerror("Błąd", "Suma wag nie może być zerowa!")
+                return
+
+            gray = (r * img[..., 0] + g * img[..., 1] + b * img[..., 2]) / suma
+
+        else:
+            return
+
+        self.base_np = np.clip(gray, 0, 255).astype(np.uint8)
+        self.apply_modifications()
 
     def update_brightness(self, value):
         self.brightness_value = int(value)
@@ -416,7 +483,12 @@ class BiometriaApp:
 
         kernel = kernels[kernel_type]
 
-        greyscale = np.dot(self.base_np[..., :3], [0.2989, 0.5870, 0.1140])
+        if len(self.base_np.shape) == 3:
+            greyscale = np.dot(self.base_np[..., :3], [0.2989, 0.5870, 0.1140])
+        else:
+            greyscale = self.base_np.astype(np.float32)
+
+        greyscale = greyscale.astype(np.float32)
 
         kernel_x = convolve(greyscale, kernel[0])
         kernel_y = convolve(greyscale, kernel[1])
@@ -425,11 +497,13 @@ class BiometriaApp:
 
         if grad.max() != 0:
             grad = (grad / grad.max()) * 255
+
         grad = grad.astype(np.uint8)
 
         threshold = self.edge_threshold.get()
         edges_np = grad > threshold
-        grad = (grad * 255).astype(np.uint8)
+
+        edges_np = (edges_np * 255).astype(np.uint8)
 
         self.edges_np = edges_np
         self.grad = grad

@@ -118,12 +118,29 @@ class BiometriaApp:
 
 
         tk.Button(sidebar, text="Negatyw", command=self.negatyw).pack(fill=tk.X, padx=10, pady=2)
-        tk.Button(sidebar, text="Binaryzacja Prosta", command=self.binaryzacja).pack(fill=tk.X, padx=10, pady=2)
+        bin_button = tk.Menubutton(sidebar, text="Binaryzacja ▼", relief=tk.RAISED)
+        bin_button.pack(fill=tk.X, padx=10, pady=2)
+
+        bin_menu = tk.Menu(bin_button, tearoff=0)
+        bin_button.config(menu=bin_menu)
+
+        bin_menu.add_command(label="Ręczny próg (Suwak)", command=self.binaryzacja_manual)
+        bin_menu.add_command(label="Metoda Otsu (Auto)", command=self.binaryzacja_otsu)
+        bin_menu.add_command(label="Progowanie lokalne (Średnia)", command=self.binaryzacja_local)
         tk.Label(sidebar, text="Filtry", font=("Arial", 10, "bold"), bg="#e0e0e0").pack(pady=10)
 
         filter_button = tk.Menubutton(sidebar, text="Filtry liniowe ▼", relief=tk.RAISED)
         filter_button.pack(fill=tk.X, padx=10, pady=2)
+        morph_button = tk.Menubutton(sidebar, text="Morfologia ▼", relief=tk.RAISED)
+        morph_button.pack(fill=tk.X, padx=10, pady=2)
 
+        morph_menu = tk.Menu(morph_button, tearoff=0)
+        morph_button.config(menu=morph_menu)
+
+        morph_menu.add_command(label="Erozja", command=lambda: self.manual_morphology("erosion"))
+        morph_menu.add_command(label="Dylatacja", command=lambda: self.manual_morphology("dilation"))
+        morph_menu.add_command(label="Otwarcie", command=lambda: self.manual_morphology("opening"))
+        morph_menu.add_command(label="Zamknięcie", command=lambda: self.manual_morphology("closing"))
         filter_menu = tk.Menu(filter_button, tearoff=0)
         filter_button.config(menu=filter_menu)
 
@@ -546,6 +563,138 @@ class BiometriaApp:
         if path:
             Image.fromarray(self.edges_np).save(path)
             messagebox.showinfo("OK", "Krawędzie zapisane!")
+
+    def manual_erosion(self, image_array):
+        h, w = image_array.shape
+        output = np.zeros((h, w), dtype=np.uint8)
+
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                roi = image_array[y - 1:y + 2, x - 1:x + 2]
+                if np.all(roi == 255):
+                    output[y, x] = 255
+        return output
+
+    def manual_dilation(self, image_array):
+        h, w = image_array.shape
+        output = np.zeros((h, w), dtype=np.uint8)
+
+        for y in range(1, h - 1):
+            for x in range(1, w - 1):
+                roi = image_array[y - 1:y + 2, x - 1:x + 2]
+                if np.any(roi == 255):
+                    output[y, x] = 255
+        return output
+
+    def manual_morphology(self, mode):
+        if self.base_np is None:
+            messagebox.showwarning("Błąd", "Wczytaj obraz!")
+            return
+        if len(self.base_np.shape) == 3:
+            messagebox.showwarning("Błąd", "Najpierw wykonaj binaryzację!")
+            return
+
+        img = self.base_np.copy()
+
+        if mode == "erosion":
+            self.base_np = self.manual_erosion(img)
+        elif mode == "dilation":
+            self.base_np = self.manual_dilation(img)
+        elif mode == "opening":
+            eroded = self.manual_erosion(img)
+            self.base_np = self.manual_dilation(eroded)
+        elif mode == "closing":
+            dilated = self.manual_dilation(img)
+            self.base_np = self.manual_erosion(dilated)
+
+        self.apply_modifications()
+
+    def binaryzacja_manual(self):
+        if self.base_np is None: return
+
+        threshold = simpledialog.askinteger("Próg", "Podaj próg binaryzacji (0-255):",
+                                            parent=self.root, minvalue=0, maxvalue=255)
+
+        if threshold is not None:
+            if len(self.base_np.shape) == 3:
+                gray = np.dot(self.base_np[..., :3], [0.2989, 0.5870, 0.1140])
+            else:
+                gray = self.base_np
+
+            self.base_np = np.where(gray > threshold, 255, 0).astype(np.uint8)
+            self.is_szarosc = True
+            self.apply_modifications()
+
+    def binaryzacja_otsu(self):
+        if self.base_np is None: return
+
+        # Musimy mieć obraz w skali szarości
+        if len(self.base_np.shape) == 3:
+            gray = np.dot(self.base_np[..., :3], [0.2989, 0.5870, 0.1140]).astype(np.uint8)
+        else:
+            gray = self.base_np
+
+        hist, _ = np.histogram(gray, bins=256, range=(0, 256))
+        total = gray.size
+
+        current_max = -1
+        threshold = 0
+
+        sum_total = np.dot(np.arange(256), hist)
+        sum_back = 0
+        weight_back = 0
+
+        for i in range(256):
+            weight_back += hist[i]
+            if weight_back == 0: continue
+
+            weight_fore = total - weight_back
+            if weight_fore == 0: break
+
+            sum_back += i * hist[i]
+            mean_back = sum_back / weight_back
+            mean_fore = (sum_total - sum_back) / weight_fore
+
+            var_between = weight_back * weight_fore * (mean_back - mean_fore) ** 2
+
+            if var_between > current_max:
+                current_max = var_between
+                threshold = i
+
+        messagebox.showinfo("Otsu", f"Wyznaczony próg: {threshold}")
+        self.base_np = np.where(gray > threshold, 255, 0).astype(np.uint8)
+        self.is_szarosc = True
+        self.apply_modifications()
+
+    def binaryzacja_local(self):
+        if self.base_np is None: return
+
+        if len(self.base_np.shape) == 3:
+            gray = np.dot(self.base_np[..., :3], [0.2989, 0.5870, 0.1140])
+        else:
+            gray = self.base_np.astype(np.float32)
+
+        h, w = gray.shape
+        output = np.zeros_like(gray, dtype=np.uint8)
+        window_size = 15
+        offset = 10
+
+        r = window_size // 2
+        for y in range(r, h - r):
+            for x in range(r, w - r):
+
+                roi = gray[y - r:y + r + 1, x - r:x + r + 1]
+                local_mean = np.mean(roi)
+
+
+                if gray[y, x] > (local_mean - offset):
+                    output[y, x] = 255
+                else:
+                    output[y, x] = 0
+
+        self.base_np = output
+        self.is_szarosc = True
+        self.apply_modifications()
 
     def not_implemented(self, name):
         messagebox.showinfo("Zadanie", f"Tu zaimplementuj ręcznie algorytm: {name}")

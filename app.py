@@ -29,6 +29,8 @@ class BiometriaApp:
         self.page_edges = None
         self.edges_np = None
         self.grad_np = None
+        self.convolve_maker = "jozef" # czy chcesz uzyc scipy convolve (duzo szybsze) czy zwyklego
+        # alternatywnie prosze dac 'jozef'
         self.last_edge_method = 'Krzyż Robertsa'
         self.setup_ui()
 
@@ -333,10 +335,10 @@ class BiometriaApp:
         if len(self.base_np.shape) == 3:
             channels = []
             for i in range(3):
-                channels.append(convolve(self.base_np[:, :, i], kernel))
+                channels.append(BiometriaApp.convolve_type(self.base_np[:, :, i], kernel, convolve_maker = self.convolve_maker))
             self.base_np = np.stack(channels, axis=2).astype(np.uint8)
         else:
-            self.base_np = convolve(self.base_np, kernel).astype(np.uint8)
+            self.base_np = BiometriaApp.convolve_type(self.base_np, kernel, convolve_maker = self.convolve_maker).astype(np.uint8)
 
         self.apply_modifications()
 
@@ -477,10 +479,10 @@ class BiometriaApp:
 
     def apply_custom_kernel(self, kernel):
         if len(self.base_np.shape) == 3:
-            channels = [convolve(self.base_np[:, :, i], kernel) for i in range(3)]
+            channels = [BiometriaApp.convolve_type(self.base_np[:, :, i], kernel, convolve_maker = self.convolve_maker) for i in range(3)]
             self.base_np = np.stack(channels, axis=2).astype(np.uint8)
         else:
-            self.base_np = convolve(self.base_np, kernel).astype(np.uint8)
+            self.base_np = BiometriaApp.convolve_type(self.base_np, kernel, convolve_maker = self.convolve_maker).astype(np.uint8)
         self.apply_modifications()
 
     def find_edges(self, kernel_type):
@@ -507,8 +509,8 @@ class BiometriaApp:
 
         greyscale = greyscale.astype(np.float32)
 
-        kernel_x = convolve(greyscale, kernel[0])
-        kernel_y = convolve(greyscale, kernel[1])
+        kernel_x = BiometriaApp.convolve_type(greyscale, kernel[0], convolve_maker = self.convolve_maker)
+        kernel_y = BiometriaApp.convolve_type(greyscale, kernel[1], convolve_maker = self.convolve_maker)
 
         grad = np.sqrt(kernel_x ** 2 + kernel_y ** 2)
 
@@ -696,8 +698,54 @@ class BiometriaApp:
         self.is_szarosc = True
         self.apply_modifications()
 
-    def not_implemented(self, name):
-        messagebox.showinfo("Zadanie", f"Tu zaimplementuj ręcznie algorytm: {name}")
+    @staticmethod
+    def reflect_pad(matrix, pad_h, pad_w):
+        m_h, m_w = matrix.shape
+        new_h = m_h + 2 * pad_h
+        new_w = m_w + 2 * pad_w
+        padded = np.zeros((new_h, new_w))
+
+        for i in range(m_h):
+            for j in range(m_w):
+                padded[i + pad_h][j + pad_w] = matrix[i][j]
+
+        for i in range(pad_h):
+            for j in range(m_w):
+                padded[pad_h - 1 - i][j + pad_w] = matrix[i][j]
+                padded[pad_h + m_h + i][j + pad_w] = matrix[m_h - 1 - i][j]
+
+        for i in range(new_h):
+            for j in range(pad_w):
+                padded[i][pad_w - 1 - j] = padded[i][pad_w + j]
+                padded[i][pad_w + m_w + j] = padded[i][pad_w + m_w - 1 - j]
+
+        return padded
+
+    @staticmethod
+    def convolve_type(matrix, kernel, convolve_maker):
+        if convolve_maker == "scipy":
+            return convolve(matrix, kernel)
+        else:
+            kernel = kernel[::-1, ::-1]
+
+            m_h, m_w = matrix.shape
+            k_h, k_w = kernel.shape
+            pad_h, pad_w = k_h // 2, k_w // 2
+
+            padded = BiometriaApp.reflect_pad(matrix, pad_h, pad_w)
+
+            output = np.zeros((m_h, m_w))
+            for i in range(m_h):
+                for j in range(m_w):
+                    total = 0.0
+                    for ki in range(k_h):
+                        for kj in range(k_w):
+                            total += padded[i + ki][j + kj] * kernel[ki][kj]
+                    output[i][j] = total
+
+            return output
+
+
 
 
 if __name__ == "__main__":

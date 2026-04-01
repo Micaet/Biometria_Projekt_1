@@ -29,7 +29,7 @@ class BiometriaApp:
         self.page_edges = None
         self.edges_np = None
         self.grad_np = None
-        self.convolve_maker = "scipy" # czy chcesz uzyc scipy convolve (duzo szybsze) czy zwyklego
+        self.convolve_maker = "jozef" # czy chcesz uzyc scipy convolve (duzo szybsze) czy zwyklego
         # alternatywnie prosze dac 'jozef'
         self.last_edge_method = 'Krzyż Robertsa'
         self.setup_ui()
@@ -485,10 +485,10 @@ class BiometriaApp:
         self.proj_figure.tight_layout(pad=3.0)
 
         ax1.plot(hor_proj, color='blue')
-        ax1.set_title("Projekcja Horyzontalna (Suma wierszy)")
+        ax1.set_title("Projekcja Horyzontalna ")
 
         ax2.plot(ver_proj, color='green')
-        ax2.set_title("Projekcja Wertykalna (Suma kolumn)")
+        ax2.set_title("Projekcja Wertykalna")
 
         canvas = FigureCanvasTkAgg(self.proj_figure, master=self.proj_frame)
         canvas.draw()

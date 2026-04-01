@@ -29,7 +29,7 @@ class BiometriaApp:
         self.page_edges = None
         self.edges_np = None
         self.grad_np = None
-        self.convolve_maker = "jozef" # czy chcesz uzyc scipy convolve (duzo szybsze) czy zwyklego
+        self.convolve_maker = "scipy" # czy chcesz uzyc scipy convolve (duzo szybsze) czy zwyklego
         # alternatywnie prosze dac 'jozef'
         self.last_edge_method = 'Krzyż Robertsa'
         self.setup_ui()
@@ -220,21 +220,75 @@ class BiometriaApp:
         elif type_of_alg == "Lightness":
             gray = (np.max(img, axis=2) + np.min(img, axis=2)) / 2
 
+
         elif type_of_alg == "PCA":
-            pixels = img.reshape(-1, 3)
 
-            mean = np.mean(pixels, axis=0)
-            pixels_centered = pixels - mean
+            pixels = img.reshape(-1, 3).astype(float)
 
-            cov = np.cov(pixels_centered, rowvar=False)
+            n = pixels.shape[0]
 
-            eigvals, eigvecs = np.linalg.eigh(cov)
 
-            principal_component = eigvecs[:, np.argmax(eigvals)]
+            mean = [0.0, 0.0, 0.0]
 
-            gray = pixels_centered @ principal_component
-            gray = gray.reshape(img.shape[:2])
-            gray = (gray - gray.min()) / (gray.max() - gray.min()) * 255
+            for p in pixels:
+                for i in range(3):
+                    mean[i] += p[i]
+
+            for i in range(3):
+                mean[i] /= n
+
+            pixels_centered = []
+
+            for p in pixels:
+                pixels_centered.append([p[i] - mean[i] for i in range(3)])
+
+            cov = [[0.0] * 3 for _ in range(3)]
+
+            for p in pixels_centered:
+
+                for i in range(3):
+                    for j in range(3):
+                        cov[i][j] += p[i] * p[j]
+
+            for i in range(3):
+                for j in range(3):
+                    cov[i][j] /= (n - 1)
+
+
+            v = [1.0, 1.0, 1.0]
+
+            for _ in range(100):
+
+                v_new = [0.0, 0.0, 0.0]
+
+                for i in range(3):
+                    for j in range(3):
+                        v_new[i] += cov[i][j] * v[j]
+
+                norm = sum(x * x for x in v_new) ** 0.5
+                v = [x / norm for x in v_new]
+
+            principal_component = v
+
+
+            gray = []
+
+            for p in pixels_centered:
+                val = sum(p[i] * principal_component[i] for i in range(3))
+                gray.append(val)
+
+            min_val = min(gray)
+            max_val = max(gray)
+
+            gray_scaled = []
+
+            for val in gray:
+                scaled = (val - min_val) / (max_val - min_val) * 255
+                gray_scaled.append(scaled)
+
+
+            h, w = img.shape[:2]
+            gray = np.array(gray_scaled).reshape(h, w)
 
         elif type_of_alg == "Custom":
             r = simpledialog.askfloat("Waga R", "Podaj wagę dla R:", parent=self.root)
